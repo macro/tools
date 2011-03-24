@@ -1,18 +1,20 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import sys
 import optparse
 import time
 import signal
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 """
    A system monitoring program for terminals.  Monitors:
       power usage
       cpu usage
       mem usage
-      monitor temperature
+      temperature
 
-   @TODO: 
+   @TODO:
       monitor networking usage
       remove hardcoded file names
       use signals or threads instead of sleep
@@ -43,17 +45,6 @@ class TermColors:
       self.DEFAULT = ''
       self.CLEAR_SCREEN = ''
 
-def getch():
-   import tty, termios
-   fd = sys.stdin.fileno()
-   old_settings = termios.tcgetattr(fd)
-   try:
-      tty.setraw(sys.stdin.fileno())
-      ch = sys.stdin.read(1)
-   finally:
-      termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-   return ch
-
 def get_stats(ifn):
    try:
       ilines = open(ifn, 'r').readlines()
@@ -62,14 +53,14 @@ def get_stats(ifn):
 
    info_dict = dict()
    for l in ilines:
-       if len(l) == 0:
+       if not l:
          continue
        tmp = l.strip().split(":")
        if len(tmp) < 2:
-          info_dict['foo'] = tmp[0].lstrip()
+          info_dict['temp'] = tmp[0].lstrip()
        else:
           info_dict[tmp[0].strip()] = tmp[1].lstrip()
-       
+
    return info_dict
 
 def dump_stats_dict(d):
@@ -80,13 +71,15 @@ def do_every(secs, func, *args):
       func(*args)
       time.sleep(secs)
 
-def get_chart(curr, max=100):
+def get_chart(curr, max=None):
+   CHART_WIDTH
+   if not max:
+      max = 100
    bars = int(float(curr) / max * CHART_WIDTH)
-   bar = "[" + TermColors.GREEN + ''.join(['+' for i in range(bars)])
-   bar += TermColors.RED + ''.join(['-' for i in range(CHART_WIDTH - bars)])\
-      + TermColors.YELLOW +"]"
-  
-   return bar 
+   bar = "[%s%s%s%s%s]" % (TermColors.GREEN, '+' * bars,
+      TermColors.RED, '-' * (CHART_WIDTH - bars), TermColors.YELLOW)
+
+   return bar
 
 def print_pct(format, *args):
    print TermColors.YELLOW+format % (args)+TermColors.DEFAULT
@@ -94,28 +87,31 @@ def print_pct(format, *args):
 def print_battery_stats(info_dict, verbose):
    if not info_dict:
       return
-   
+
    if verbose:
       dump_stats_dict(info_dict)
 
-   last_capacity = float(info_dict.get('last full capacity', 
+   last_capacity = float(info_dict.get('last full capacity',
       '0.0 mAh').split('mAh')[0])
-   design_capacity = float(info_dict.get('design capacity', 
+   design_capacity = float(info_dict.get('design capacity',
       '1.0 mAh').split('mAh')[0])
-   remaining_capacity = float(info_dict.get('remaining capacity', 
+   remaining_capacity = float(info_dict.get('remaining capacity',
       '0.0 mAh').split('mAh')[0])
-   present_rate = float(info_dict.get('present rate', 
+   present_rate = float(info_dict.get('present rate',
       '1.0 mA').split('mA')[0])
 
-   pct_remain = remaining_capacity / last_capacity * 100.0
+   try:
+      pct_remain = remaining_capacity / last_capacity * 100.0
+   except ZeroDivisionError:
+      pct_remain = 100
    pct_age = last_capacity / design_capacity * 100.0
    end_state = None
-   if info_dict['charging state'] == 'discharging':
+   if info_dict.get('charging state') == 'discharging':
       # present rate is the drain rate
       end_state = "empty"
       try:
          secs_remain = remaining_capacity / present_rate * 3600
-         secs_total = last_capacity / present_rate * 3600
+         secs_total = last_capacity / present_rate * 3600.0
       except ZeroDivisionError:
          secs_remain = 1.0
          secs_total = 1.0
@@ -124,18 +120,18 @@ def print_battery_stats(info_dict, verbose):
       end_state = "full"
       try:
          secs_remain = (last_capacity - remaining_capacity) / present_rate * 3600
-         secs_total = last_capacity / present_rate * 3600
+         secs_total = last_capacity / present_rate * 3600.0
       except ZeroDivisionError:
          secs_remain = 0.0
          secs_total = 105.0
 
-   time_remain = timedelta(seconds=long(secs_remain)) 
-   time_total = timedelta(seconds=long(secs_total)) 
-   print_pct("%s %s %02.2f%%", "Power remaining:".ljust(TITLE_WIDTH), 
+   time_remain = timedelta(seconds=long(secs_remain))
+   time_total = timedelta(seconds=long(secs_total))
+   print_pct("%s %s %02.2f%%", "Power remaining:".ljust(TITLE_WIDTH),
       get_chart(pct_remain, 100), pct_remain)
-   print_pct("%s %s %s / %s", ("Time until " + end_state + ":").ljust(TITLE_WIDTH), 
+   print_pct("%s %s %s / %s", ("Time until " + end_state + ":").ljust(TITLE_WIDTH),
       get_chart(secs_remain, secs_total), time_remain, time_total)
-   print_pct("%s %s %02.2f%%", "Battery age:".ljust(TITLE_WIDTH), 
+   print_pct("%s %s %02.2f%%", "Battery age:".ljust(TITLE_WIDTH),
       get_chart(pct_age, 100), pct_age)
 
 def get_mem_stats(ifn = "/proc/meminfo"):
@@ -144,10 +140,10 @@ def get_mem_stats(ifn = "/proc/meminfo"):
    stats_dict = dict()
    for l in slines:
        tmp = l.strip().split(":")
-       stats_dict[tmp[0]] = tmp[1].lstrip()
+       stats_dict[tmp[0].strip()] = tmp[1].lstrip()
 
    return stats_dict
- 
+
 def print_mem_stats(stats_dict, verbose=False):
    if verbose:
       dump_stats_dict(stats_dict)
@@ -156,9 +152,9 @@ def print_mem_stats(stats_dict, verbose=False):
    swap_total = int(stats_dict['SwapTotal'].strip("kB")) / 1024
    swap_free = int(stats_dict['SwapFree'].strip("kB")) / 1024
 
-   print_pct("%s %s %dmB / %dmB", "Free memory:".ljust(TITLE_WIDTH), 
+   print_pct("%s %s %d / %dMB", "Free memory:".ljust(TITLE_WIDTH),
       get_chart(mem_free, mem_total), mem_free, mem_total)
-   print_pct("%s %s %dmB / %dmB", "Free swap:".ljust(TITLE_WIDTH), 
+   print_pct("%s %s %d / %dMB", "Free swap:".ljust(TITLE_WIDTH),
       get_chart(swap_free, swap_total), swap_free, swap_total)
 
 def get_cpu_stats(ifn = "/proc/stat"):
@@ -197,13 +193,17 @@ def print_cpu_stats(stats_dict, verbose=False):
          prev = stats_dict[k][1]
          usage = curr[0] - prev[0]
          total = curr[1] - prev[1]
-         usage_pct = float(usage)/total * 100
-         print_pct("%s %s %d%%", (k + " usage:").ljust(TITLE_WIDTH), 
+         try:
+            usage_pct = float(usage)/total * 100
+         except ZeroDivisionError:
+            usage_pct = 0
+         print_pct("%s %s %d%%", (k + " usage:").ljust(TITLE_WIDTH),
             get_chart(usage_pct, 100), usage_pct)
 
 def print_header():
-   now = datetime.now()
-   print "%s[%s]%s" % (TermColors.BLUE, now.strftime('%a %Y-%m-%d %H:%M:%S'),
+   print "%s[%s]%s" % (TermColors.BLUE,
+      time.strftime('%H:%M:%S %Z %a %Y-%m-%d',
+                    time.localtime()),
       TermColors.DEFAULT)
 
 def pluralize(n, word):
@@ -233,20 +233,38 @@ def print_proc_info(cpu_info_dict, verbose):
    else:
       model_name = cpu_info_dict['model name']
 
-   print "%s[%s]%s" % (TermColors.BLUE, 
+   print "%s[%s]%s" % (TermColors.BLUE,
       "%s @ %dMHz | %d %s, %d cpu %s" % (model_name,
-      float(cpu_info_dict['cpu MHz']), cpus, pluralize(cpus, 'proc'), 
+      float(cpu_info_dict['cpu MHz']), cpus, pluralize(cpus, 'proc'),
       total_cores, pluralize(total_cores, 'core')), TermColors.DEFAULT)
-   print "%s[Load: %s | Temp: %s]%s" % (TermColors.BLUE, 
-      cpu_info_dict['loadavg'], cpu_info_dict['temperature'],
+   print "%s[Load: %s | Temp: %s]%s" % (TermColors.BLUE,
+      cpu_info_dict['loadavg'], cpu_info_dict.get('temperature', 'n/a'),
       TermColors.DEFAULT)
-   
-def print_stats(verbose=False, cpu_stats_gen=get_cpu_stats()):
-   batt_info_dict = get_stats("/proc/acpi/battery/BAT1/info") 
-   batt_info_dict.update(get_stats("/proc/acpi/battery/BAT1/state"))
 
-   cpu_info_dict = get_stats("/proc/cpuinfo") 
-   cpu_info_dict.update(get_stats("/proc/acpi/thermal_zone/THRM/temperature"))
+def print_stats(verbose=False, cpu_stats_gen=get_cpu_stats()):
+   batt_info_dict = get_stats("/proc/acpi/battery/BAT0/info")
+   batt_info_dict.update(get_stats("/proc/acpi/battery/BAT0/state"))
+
+   # HACK: handle present rate = unknown
+   if batt_info_dict.get('present rate', 'unknown') == 'unknown':
+      batt_info_dict['present rate'] = '1250 mAh'
+
+   cpu_info_dict = get_stats("/proc/cpuinfo")
+   #cpu_info_dict.update(get_stats("/proc/acpi/thermal_zone/THRM/temperature"))
+
+   # HACK: get temp from libsensor (ie. libsensor is a dependency)
+   fn_list = ["/sys/class/hwmon/hwmon0/device/hwmon/hwmon0/device/temp1_input"]
+   temp_list = list()
+   for fn in fn_list:
+      cpu_info_dict.update(get_stats(fn))
+      try:
+         temp = '%.0f°C' % (int(cpu_info_dict['temp'])/(1000.0))
+         del cpu_info_dict['temp']
+      except ValueError:
+         temp = 'n/a'
+      temp_list.append(temp)
+   cpu_info_dict['temperature'] = ' '.join("%s" % (s,) for s in temp_list)
+
    try:
       load_avg = ' '.join(open("/proc/loadavg", 'r').readlines()[0].split()[:3])
    except IOError:
@@ -271,11 +289,11 @@ def handle_break(signum, frame):
 
 def main():
    parser = optparse.OptionParser()
-   parser.add_option("-v", "--verbose", help="Turn on verbosity.", 
+   parser.add_option("-v", "--verbose", help="Turn on verbosity.",
       action="store_true")
-   parser.add_option("-s", "--seconds", help="Get stats every N seconds.", 
+   parser.add_option("-s", "--seconds", help="Get stats every N seconds.",
       default=float(5))
-   parser.add_option("-o", "--once", help="Run once and exit, do not loop.", 
+   parser.add_option("-o", "--once", help="Run once and exit, do not loop.",
       action="store_true")
    opts, args = parser.parse_args()
    verbose = opts.verbose
