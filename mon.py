@@ -233,13 +233,20 @@ def print_proc_info(cpu_info_dict, verbose):
    else:
       model_name = cpu_info_dict['model name']
 
+   try: 
+      loadavg = cpu_info_dict['loadavg'].split(' ')
+      normalized_loadavg = ' '.join(['%0.02f' % (max(0.0, ((float(i)-total_cores)/total_cores)))
+            for i in loadavg])
+   except ValueError:
+      normalized_loadavg = loadavg
+
    print "%s[%s]%s" % (TermColors.BLUE,
       "%s @ %dMHz | %d %s, %d cpu %s" % (model_name,
       float(cpu_info_dict['cpu MHz']), cpus, pluralize(cpus, 'proc'),
       total_cores, pluralize(total_cores, 'core')), TermColors.DEFAULT)
-   print "%s[Load: %s | Temp: %s]%s" % (TermColors.BLUE,
-      cpu_info_dict['loadavg'], cpu_info_dict.get('temperature', 'n/a'),
-      TermColors.DEFAULT)
+   print "%s[Load: %s (%s) | Temp: %s]%s" % (TermColors.BLUE,
+      cpu_info_dict['loadavg'], normalized_loadavg, 
+      cpu_info_dict.get('temperature', 'n/a'), TermColors.DEFAULT)
 
 def print_stats(verbose=False, cpu_stats_gen=get_cpu_stats()):
    batt_info_dict = get_stats("/proc/acpi/battery/BAT0/info")
